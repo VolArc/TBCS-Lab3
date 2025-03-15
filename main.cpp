@@ -150,7 +150,7 @@ void Factor() {
                 exit(1);
             }
         } else {
-            cerr << "Ошибка: неверный символ в FACTOR на позиции " << pos
+            cerr << "Ошибка: неверный символ в множителе на позиции " << pos
                  << " (" << input[pos] << ")" << endl;
             exit(1);
         }
@@ -265,12 +265,15 @@ void If() {
         cerr << "Ошибка: ожидался символ ':' в IF на позиции " << pos << endl;
         exit(1);
     }
-    if (pos == input.size())
+    if (pos == input.size()) {
         cerr << "Ошибка: нет блока ИНАЧЕ"<< endl;
+        exit(1);
+    }
     Expression();
 }
 
 int main() {
+    cout << "Введите выражение: ";
     getline(cin, input);
 
     Expression();
