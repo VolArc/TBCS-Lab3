@@ -1,286 +1,259 @@
 #include <iostream>
-#include <stack>
 #include <string>
-using std::cout, std::cerr, std::cin, std::string, std::endl, std::stack;
+#include <stdexcept>
+using namespace std;
 
-/* class Tree {
+class Tree {
+public:
     class Node {
     public:
-        Node* pLeft;
-        Node* pRight;
-        long long inf;
+        enum class Type { Operator, Number, Variable, Conditional };
 
-        explicit Node (const long long inf, Node* pLeft = nullptr, Node* pRight = nullptr) {
-            this->inf=inf;
-            this->pLeft=pLeft;
-            this->pRight=pRight;
-        }
+        Type type;
+        string strValue;
+        double numValue;
+        Node* left;
+        Node* middle;
+        Node* right;
+
+        // Конструктор для операторов и условных выражений
+        Node(Type t, const string& val, Node* l = nullptr, Node* m = nullptr, Node* r = nullptr)
+            : type(t), strValue(val), left(l), middle(m), right(r), numValue(0.0) {}
+
+        // Конструктор для чисел
+        Node(double num, Node* l = nullptr, Node* r = nullptr)
+            : type(Type::Number), numValue(num), left(l), right(r), middle(nullptr) {}
+
+        // Конструктор для переменных
+        Node(const string& var, Node* l = nullptr, Node* r = nullptr)
+            : type(Type::Variable), strValue(var), left(l), right(r), middle(nullptr) {}
     };
 
-    Node* pRoot = nullptr;
-
-    void InsertOperator (const char operand) {
-        pRoot = new Node(operand, pRoot);
+    explicit Tree(const string& inputStr) : root(nullptr), input(inputStr), pos(0) {
+        root = Expression();
+        if (pos != input.length()) {
+            throw runtime_error("Ошибка: неожиданный символ на позиции " + to_string(pos));
+        }
     }
 
-    void InsertOperand (const char operation) {
-        if (pRoot == nullptr)
-            pRoot = new Node (operation);
-        else
-            pRoot->pRight = new Node (operation);
+    ~Tree() { deleteTree(root); }
+
+    void printReversedPolishNotation() const {
+        printRPN(root);
+        cout << endl;
     }
 
-public:
-    Tree();
-    ~Tree();
+private:
+    Node* root;
+    string input;
+    int pos;
+
+    static bool IsDigit(char c) { return c >= '0' && c <= '9'; }
+    static bool IsLetter(char c) { return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'); }
+
+    // <EXPRESSION> ::= ( [‘-‘] <ADDEND> {(‘+’ | ‘-‘) <ADDEND>} ) | <IF>
+    Node* Expression() {
+        if (pos < input.size() && input[pos] == '#') {
+            return If();
+        }
+
+        Node* left = nullptr;
+        if (pos < input.size() && input[pos] == '-') {
+            string op(1, input[pos]);
+            pos++;
+            left = new Node(Node::Type::Operator, op, nullptr, Addend());
+        } else {
+            left = Addend();
+        }
+
+        while (pos < input.size() && (input[pos] == '+' || input[pos] == '-')) {
+            string op(1, input[pos]);
+            pos++;
+            Node* right = Addend();
+            left = new Node(Node::Type::Operator, op, left, right);
+        }
+        return left;
+    }
+
+    // <ADDEND> ::= <FACTOR> {(‘*’ | ‘/’ | ‘//’ | ‘%’) <FACTOR>}
+    Node* Addend() {
+        Node* left = Factor();
+        while (pos < input.size()) {
+            if (input[pos] == '*') {
+                string op(1, input[pos]);
+                pos++;
+                left = new Node(Node::Type::Operator, op, left, Factor());
+            } else if (input[pos] == '/') {
+                string op(1, input[pos]);
+                pos++;
+                if (pos < input.size() && input[pos] == '/') {
+                    op = "//";
+                    pos++;
+                }
+                left = new Node(Node::Type::Operator, op, left, Factor());
+            } else if (input[pos] == '%') {
+                string op(1, input[pos]);
+                pos++;
+                left = new Node(Node::Type::Operator, op, left, Factor());
+            } else break;
+        }
+        return left;
+    }
+
+    // <FACTOR> ::= <NUMBER> | <VARIABLE> | ‘(‘ <EXPRESSION> ‘)’
+    Node* Factor() {
+        if (pos >= input.size()) {
+            throw runtime_error("Ошибка: ожидался множитель на позиции " + to_string(pos));
+        }
+
+        if (IsDigit(input[pos]))
+            return Number();
+        if (IsLetter(input[pos]))
+            return Variable();
+        if (input[pos] == '(') {
+            pos++;
+            Node* node = Expression();
+            if (pos >= input.size() || input[pos] != ')') {
+                throw runtime_error("Ошибка: ожидалась ')' на позиции " + to_string(pos));
+            }
+            pos++;
+            return node;
+        }
+        throw runtime_error("Ошибка: неверный символ в множителе на позиции " + to_string(pos));
+    }
+
+    // <NUMBER> ::= {<DIGIT>} [‘.’ {<DIGIT>}]
+    Node* Number() {
+        string num;
+        while (pos < input.size() && IsDigit(input[pos])) {
+            num += input[pos++];
+        }
+
+        if (pos < input.size() && input[pos] == '.') {
+            num += input[pos++];
+            if (!IsDigit(input[pos])) {
+                throw runtime_error("Ошибка: ожидалась цифра после точки на позиции " + to_string(pos));
+            }
+            while (pos < input.size() && IsDigit(input[pos])) {
+                num += input[pos++];
+            }
+        }
+        return new Node(stod(num));
+    }
+
+    // <VARIABLE> ::= <LETTER> { <LETTER> | <DIGIT> }
+    Node* Variable() {
+        string var;
+        while (pos < input.size() && (IsLetter(input[pos]) || IsDigit(input[pos]))) {
+            var += input[pos++];
+        }
+        return new Node(var);
+    }
+
+    // <RELATION> ::= [‘!’] ( <EXPRESSION> (‘<’ | ‘=’ | ‘>’) <EXPRESSION> )
+    Node* Relation() {
+        bool negation = false;
+        if (pos < input.size() && input[pos] == '!') {
+            negation = true;
+            pos++;
+        }
+
+        Node* leftExpr = Expression();
+        if (pos >= input.size() || (input[pos] != '<' && input[pos] != '=' && input[pos] != '>')) {
+            throw runtime_error("Ошибка: ожидался оператор сравнения на позиции " + to_string(pos));
+        }
+        string op(1, input[pos++]);
+        Node* rightExpr = Expression();
+
+        Node* relNode = new Node(Node::Type::Operator, op, leftExpr, rightExpr);
+        return negation ? new Node(Node::Type::Operator, "!", nullptr, relNode) : relNode;
+    }
+
+    // <LOGIC_ADDEND> ::= <RELATION> {‘&’ (<RELATION> | ‘(‘ <CONDITION> ‘)’ )}
+    Node* LogicAddend() {
+        Node* left = Relation();
+        while (pos < input.size() && input[pos] == '&') {
+            pos++;
+            Node* right;
+            if (pos < input.size() && input[pos] == '(') {
+                pos++;
+                right = Condition();
+                if (pos >= input.size() || input[pos] != ')') {
+                    throw runtime_error("Ошибка: ожидалась ')' в логическом слагаемом на позиции " + to_string(pos));
+                }
+                pos++;
+            } else {
+                right = Relation();
+            }
+            left = new Node(Node::Type::Operator, "&", left, right);
+        }
+        return left;
+    }
+
+    // <CONDITION> ::= <LOGIC_ADDEND> {‘|’ <LOGIC_ADDEND>}
+    Node* Condition() {
+        Node* left = LogicAddend();
+        while (pos < input.size() && input[pos] == '|') {
+            pos++;
+            Node* right = LogicAddend();
+            left = new Node(Node::Type::Operator, "|", left, right);
+        }
+        return left;
+    }
+
+    // <IF> ::= ‘#’ <CONDITION> ‘?’ <EXPRESSION> ‘:’ <EXPRESSION>
+    Node* If() {
+        pos++;
+        Node* cond = Condition();
+        if (pos >= input.size() || input[pos] != '?') {
+            throw runtime_error("Ошибка: ожидался '?' в IF на позиции " + to_string(pos));
+        }
+        pos++;
+        Node* trueExpr = Expression();
+        if (pos >= input.size() || input[pos] != ':') {
+            throw runtime_error("Ошибка: ожидался ':' в IF на позиции " + to_string(pos));
+        }
+        pos++;
+        Node* falseExpr = Expression();
+        return new Node(Node::Type::Conditional, "IF", cond, trueExpr, falseExpr);
+    }
+
+    void deleteTree(Node* node) {
+        if (node) {
+            deleteTree(node->left);
+            deleteTree(node->middle);
+            deleteTree(node->right);
+            delete node;
+        }
+    }
+
+    void printRPN(const Node* node) const {
+        if (node) {
+            printRPN(node->left);
+            printRPN(node->middle);
+            printRPN(node->right);
+            if (node->type == Node::Type::Number) {
+                cout << node->numValue << " ";
+            } else {
+                cout << node->strValue << " ";
+            }
+        }
+    }
 };
-
-Tree::Tree() {
-    pRoot = nullptr;
-}
-
-Tree::~Tree() {
-    if (pRoot == nullptr) return;
-
-    std::stack<Node*> nodeStack;
-    nodeStack.push(pRoot);
-
-    while (!nodeStack.empty()) {
-        const Node* current = nodeStack.top();
-        nodeStack.pop();
-
-        if (current->pLeft) nodeStack.push(current->pLeft);
-        if (current->pRight) nodeStack.push(current->pRight);
-
-        delete current;
-    }
-
-    pRoot = nullptr;
-}*/
-
-bool IsDigit (const char symbol) {
-    return symbol >= '0' && symbol <= '9';
-}
-
-bool IsLetter (const char symbol) {
-    return symbol >= 'A' && symbol <= 'Z' || symbol >= 'a' && symbol <= 'z';
-}
-
-string input;
-int pos = 0;
-
-// <DIGIT> ::= '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'
-void Digit() {
-    if (pos < input.size() && IsDigit(input[pos]))
-        cout << input[pos++];
-    else {
-        cerr << "Ошибка: ожидалась цифра на позиции " << pos << endl;
-        exit(1);
-    }
-}
-
-// <LETTER> ::= 'A' | 'B' | … | 'Z' | 'a' | 'b' | … | 'z'
-void Letter() {
-    if (pos < input.size() && IsLetter(input[pos]))
-        cout << input[pos++];
-    else {
-        cerr << "Ошибка: ожидалась буква на позиции " << pos << endl;
-        exit(1);
-    }
-}
-
-// <VARIABLE> ::= <LETTER> { <LETTER> | <DI0> }
-void Variable() {
-    Letter();
-    // После первой буквы могут идти буквы или цифры (DI0)
-    while (pos < input.size() && (IsLetter(input[pos]) || IsDigit(input[pos]))) {
-        // Для цифры вызываем соответствующий разбор: если это '0', то DI0,
-        // если не '0', то DE0 (который сам выведет символ).
-        if (IsLetter(input[pos])) Letter();
-        else Digit();
-    }
-}
-
-// <NUMBER> ::= ("0" | <DE0> { <DI0> }) [ '.' {<DI0>} <DE0> ]
-void Number() {
-    if (pos < input.size() && IsDigit(input[pos])) {
-        Digit();
-        while (pos < input.size() && IsDigit(input[pos]))
-            Digit();
-    } else {
-        cerr << "Ошибка: ожидалось число на позиции " << pos << endl;
-        exit(1);
-    }
-
-    // Опциональная дробная часть
-    if (pos < input.size() && input[pos] == '.') {
-        cout << input[pos++];
-        // Должна быть хотя бы одна цифра после точки.
-        if (pos < input.size() && IsDigit(input[pos])) {
-            // Собираем цифры дробной части.
-            Digit();
-            while (pos < input.size() && IsDigit(input[pos]))
-                Digit();
-        } else {
-            cerr << "Ошибка: ожидалась цифра после точки в числе на позиции " << pos << endl;
-            exit(1);
-        }
-    }
-}
-
-// Предварительные объявления для взаимных вызовов
-void If();
-void Expression();
-void Condition();
-
-// <FACTOR> ::= <NUMBER> | <VARIABLE> | '(' <EXPRESSION> ')'
-void Factor() {
-    if (pos < input.size()) {
-        if (IsDigit(input[pos])) {
-            Number();
-        } else if (IsLetter(input[pos])) {
-            Variable();
-        } else if (input[pos] == '(') {
-            cout << input[pos++];
-            Expression();
-            if (pos < input.size() && input[pos] == ')')
-                cout << input[pos++];
-            else {
-                cerr << "Ошибка: ожидалась ')' на позиции " << pos << endl;
-                exit(1);
-            }
-        } else {
-            cerr << "Ошибка: неверный символ в множителе на позиции " << pos
-                 << " (" << input[pos] << ")" << endl;
-            exit(1);
-        }
-    }
-
-    else {
-        cerr << "Ошибка: ожидался множитель на позиции " << pos << endl;
-        exit(1);
-    }
-}
-
-// <ADDEND> ::= <FACTOR> {( '*' | '/' | '//' | '%' ) <FACTOR>}
-void Addend() {
-    Factor();
-    while (pos < input.size()) {
-        if (input[pos] == '*') {
-            cout << input[pos++];
-        } else if (input[pos] == '/') {
-            // Проверяем, не начинается ли оператор с двойного слэша.
-            cout << input[pos++];
-            if (pos < input.size() && input[pos] == '/')
-                cout << input[pos++];
-        } else if (input[pos] == '%')
-            cout << input[pos++];
-        else
-            break;
-
-        Factor();
-    }
-}
-
-// <EXPRESSION> ::= ( [ '-' ] <ADDEND> {( '+' | '-' ) <ADDEND>} ) | <IF>
-void Expression() {
-    // Если начинается с '#' - это конструкция IF.
-    if (pos < input.size() && input[pos] == '#') {
-        If();
-        return;
-    }
-    // Иначе арифметическое выражение
-    if (pos < input.size() && input[pos] == '-')
-        cout << input[pos++]; // Унарный минус
-
-    Addend();
-    while (pos < input.size() && (input[pos] == '+' || input[pos] == '-')) {
-        cout << input[pos++];
-        Addend();
-    }
-}
-
-// <RELATION> ::= [ '!' ] (<EXPRESSION> ('<' | '=' | '>') <EXPRESSION>)
-void Relation() {
-    if (pos < input.size() && input[pos] == '!')
-        cout << input[pos++];
-
-    Expression();
-
-    if (pos < input.size() && (input[pos] == '<' || input[pos] == '=' || input[pos] == '>'))
-        cout << input[pos++];
-    else {
-        cerr << "Ошибка: ожидался оператор сравнения (<, = или >) на позиции " << pos << endl;
-        exit(1);
-    }
-    Expression();
-}
-
-// <LOGIC_ADDEND> ::= <RELATION> { '&' (<RELATION> | '(' <Condition> ')' )}
-void LogicAddend() {
-    Relation();
-    while (pos < input.size() && input[pos] == '&') {
-        cout << input[pos++];
-        if (pos < input.size() && input[pos] == '(') {
-            Condition();
-            if (pos < input.size() && input[pos] == ')')
-                cout << input[pos++];
-            else {
-                cerr << "Ошибка: ожидалась ')' в логическом слагаемом на позиции " << pos << endl;
-                exit(1);
-            }
-        }
-        else Relation();
-    }
-}
-
-// <CONDITION> ::= <LOGIC_ADDEND> { '|' <LOGIC_ADDEND> }
-void Condition() {
-    LogicAddend();
-    while (pos < input.size() && input[pos] == '|') {
-        cout << input[pos++];
-        LogicAddend();
-    }
-}
-
-// <IF> ::= '#' <CONDITION> '?' <EXPRESSION> ':' <EXPRESSION>
-void If() {
-    if (pos < input.size() && input[pos] == '#')
-        cout << input[pos++];
-    else {
-        cerr << "Ошибка: ожидался символ '#' перед условием " << pos << endl;
-        exit(1);
-    }
-    Condition();
-    if (pos < input.size() && input[pos] == '?')
-        cout << input[pos++];
-    else {
-        cerr << "Ошибка: ожидался символ '?' в IF на позиции " << pos << endl;
-        exit(1);
-    }
-    Expression();
-    if (pos < input.size() && input[pos] == ':')
-        cout << input[pos++];
-    else {
-        cerr << "Ошибка: ожидался символ ':' в IF на позиции " << pos << endl;
-        exit(1);
-    }
-    if (pos == input.size()) {
-        cerr << "Ошибка: нет блока ИНАЧЕ"<< endl;
-        exit(1);
-    }
-    Expression();
-}
 
 int main() {
     cout << "Введите выражение: ";
+    string input;
     getline(cin, input);
 
-    Expression();
-
-    if (pos != input.size()) {
-        cerr << "\nОшибка: неожиданный символ: : " << input[pos] << endl;
+    try {
+        Tree tree(input);
+        cout << "\nОбратная польская запись: ";
+        tree.printReversedPolishNotation();
+    } catch (const exception& e) {
+        cerr << e.what() << endl;
         return 1;
     }
+
     return 0;
 }
