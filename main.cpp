@@ -340,11 +340,11 @@ private:
                 }
             }
             case Node::Type::Conditional: {
-                double condition = evaluateNode(node->middle);
+                double condition = evaluateNode(node->left);
                 cout << "Условие IF: " << condition << endl;
                 if (condition != 0) {
                     cout << "Выполняется ветка THEN" << endl;
-                    return evaluateNode(node->left);
+                    return evaluateNode(node->middle);
                 } else {
                     cout << "Выполняется ветка ELSE" << endl;
                     return evaluateNode(node->right);
